@@ -1,0 +1,193 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+## Eishante Wilkes
+
+## Module 2 Assignment 2: Multiple Linear Regression
+
+
+```{r}
+library(tidyverse) #tidyverse set of packages and functions
+library(tidymodels)
+library(glmnet) #for Lasso, ridge, and elastic net models 
+library(GGally) #create ggcorr and ggpairs plots
+library(ggcorrplot) #create an alternative to ggcorr plots
+library(MASS) #access to forward and backward selection algorithms
+library(car) 
+library(lubridate) 
+library(lmtest)
+library(devtools)
+```
+
+```{r}
+bike <- read_csv("bike_cleaned.csv")
+
+bike = bike %>% mutate(dteday = mdy(dteday))
+
+# summary(bike)
+
+bike = bike %>% mutate_if(is.character, as.factor)
+
+bike = bike %>% mutate(hr = as_factor(hr))
+
+# summary(bike)
+
+# We convert hr to a factor because there are 24 hours in a day which can assist us identify which hour in the day is significant in the data.
+
+
+```
+
+```{r}
+ggcorr(bike)
+
+# Temp and atemp appear to be the best correlated variables with count.
+```
+
+```{r}
+ggplot(bike, aes(x=hr, y=count)) + geom_boxplot() + theme_bw()
+
+
+# You can see how hour impacts count by the variations in the plot. The count fluctuates as the hours increase.
+
+
+ggplot(bike, aes(x=dteday, y=count)) + geom_boxplot() + theme_bw()
+
+
+# dteday does not appear to impact the count since there is no increase or decrease based on the dates.
+
+ggplot(bike, aes(x=season, y=count)) + geom_boxplot() + theme_bw()
+
+
+# Season does impact the count. There is some variation in the plots. There is a lower spread during winter months as an example.
+
+ggplot(bike, aes(x=mnth, y=count)) + geom_boxplot() + theme_bw()
+
+# Mnth impacts the count. There are changes in the data across months.
+
+ggplot(bike, aes(x=holiday, y=count)) + geom_boxplot() + theme_bw()
+
+# Holiday does have a slight impact on the count but not as much variation as other variables.
+
+ggplot(bike, aes(x=weekday, y=count)) + geom_boxplot() + theme_bw()
+
+# Weekday has a slight impact on the count since there is variation in the data but appears to be fairly consistent. 
+
+ggplot(bike, aes(x=workingday, y=count)) + geom_boxplot() + theme_bw()
+
+# Workingday appears to be consistent since the variation is so small in the data. I would say it does not impact the count.
+
+ggplot(bike, aes(x=weathersit, y=count)) + geom_boxplot() + theme_bw()
+
+# Weathersit clearly impacts the count since the count increases as the amount of precipitation decreases.
+
+
+```
+
+
+```{r}
+temp_count = recipe(count ~ temp, bike)
+
+lm_model =  
+  linear_reg() %>%
+  set_engine("lm")  
+
+lm_wflow = 
+  workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(temp_count)
+
+lm_fit = fit(lm_wflow, bike)
+```
+
+```{r}
+summary(lm_fit$fit$fit$fit)
+
+# The model does not look like it is good quality. I am concerned about the y-intercept being negative because I don't know if this is a red flag or not, but the p-value is below .05 and the slope is a positive number. The adjusted R squared value is low which also seems to be another red flag.
+```
+
+
+```{r}
+bike_values = recipe(count ~., bike) %>%
+  step_rm(instant, dteday, registered, casual) %>%
+  step_dummy(all_nominal()) %>%
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors())
+  
+  
+ridge_model = 
+  linear_reg(mixture = 0 ) %>% 
+  set_engine("glmnet")  
+
+ridge_wflow = 
+  workflow() %>% 
+  add_model(ridge_model) %>% 
+  add_recipe(bike_values)
+
+ridge_fit = fit(ridge_wflow, bike)
+```
+
+```{r}
+ridge_fit
+
+plot(ridge_fit$fit$fit$fit$lambda,ridge_fit$fit$fit$fit$dev.ratio)
+```
+
+```{r}
+ridge_fit %>%
+  pull_workflow_fit() %>%
+  pluck("fit") 
+```
+
+```{r}
+ridge_fit %>%
+  pull_workflow_fit() %>%
+  pluck("fit")  %>% 
+  coef(s = 13760)
+
+# There seems to be a lot of multicollinearity happening since there are a lot of variables that have negative slopes. Several variables may be excluded when doing a Lasso regression.
+```
+
+```{r}
+bike_lasso = recipe(count ~., bike) %>%
+  step_rm(instant, dteday, registered, casual) %>%
+  step_dummy(all_nominal()) %>%
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors())
+```
+
+```{r}
+lasso_model =  
+  linear_reg(mixture = 1) %>% 
+  set_engine("glmnet")
+```
+
+```{r}
+lasso_wflow = 
+  workflow() %>% 
+  add_model(lasso_model) %>% 
+  add_recipe(bike_lasso)
+
+lasso_fit = fit(lasso_wflow, bike)
+```
+
+```{r}
+lasso_fit %>%
+  pull_workflow_fit() %>%
+  pluck("fit")
+```
+
+```{r}
+lasso_fit %>%
+  pull_workflow_fit() %>%
+  pluck("fit")  %>% 
+  coef(s = 4.105)
+
+# This model ommitted several of the variables. It appears that weekday and month are not predictors of count. 
+
+
+```
+
+
+The implications of the models is that month and weekday are not predictors of count but seasons and hours are.
